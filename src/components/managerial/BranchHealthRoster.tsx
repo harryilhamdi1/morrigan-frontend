@@ -1,8 +1,10 @@
 'use client';
 
+import { useEffect, useState } from 'react';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
-import { CheckCircle2, ShieldAlert, TimerReset, Building2, ExternalLink } from "lucide-react";
+import { CheckCircle2, ShieldAlert, TimerReset, Building2, ExternalLink, Loader2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import { createClient } from '@/lib/supabase/client';
 
 interface BranchData {
     id: string;
@@ -15,14 +17,82 @@ interface BranchData {
 }
 
 export function BranchHealthRoster() {
-    // Simulated Regional Map-Reduce Data
-    const mockRosterData: BranchData[] = [
-        { id: 'b1', name: 'Branch Bandung Raya', totalStores: 18, completionRate: 94, turtleBadges: 2, overdueTasks: 1, healthStatus: 'Excellent' },
-        { id: 'b2', name: 'Branch Jabodetabek 1', totalStores: 24, completionRate: 72, turtleBadges: 14, overdueTasks: 8, healthStatus: 'Critical' },
-        { id: 'b3', name: 'Branch Jawa Tengah', totalStores: 15, completionRate: 85, turtleBadges: 5, overdueTasks: 3, healthStatus: 'Warning' },
-        { id: 'b4', name: 'Branch Jawa Timur', totalStores: 20, completionRate: 98, turtleBadges: 0, overdueTasks: 0, healthStatus: 'Excellent' },
-        { id: 'b5', name: 'Branch Bali & Nusra', totalStores: 12, completionRate: 81, turtleBadges: 4, overdueTasks: 2, healthStatus: 'Warning' }
-    ];
+    const [rosterData, setRosterData] = useState<BranchData[]>([]);
+    const [loading, setLoading] = useState(true);
+
+    useEffect(() => {
+        async function fetchRoster() {
+            try {
+                const supabase = createClient();
+
+                // Get branches with their stores
+                const { data: branches } = await supabase
+                    .from('branches')
+                    .select('id, name, stores(id)');
+
+                if (!branches) { setLoading(false); return; }
+
+                const result: BranchData[] = [];
+
+                for (const branch of branches) {
+                    const storeIds = (branch.stores as any[])?.map(s => s.id) || [];
+                    if (storeIds.length === 0) continue;
+
+                    // Get action plans for this branch's stores
+                    const { data: plans } = await supabase
+                        .from('action_plans')
+                        .select('status, due_date')
+                        .in('store_id', storeIds);
+
+                    const now = new Date();
+                    let resolved = 0;
+                    let overdue = 0;
+                    const total = plans?.length || 0;
+
+                    plans?.forEach(p => {
+                        if (p.status === 'Resolved') resolved++;
+                        if (p.status === 'Requires Action' && p.due_date && new Date(p.due_date) < now) overdue++;
+                    });
+
+                    const completionRate = total > 0 ? Math.round((resolved / total) * 100) : 100;
+                    const healthStatus: BranchData['healthStatus'] =
+                        completionRate > 90 ? 'Excellent' :
+                            completionRate > 75 ? 'Warning' : 'Critical';
+
+                    result.push({
+                        id: branch.id,
+                        name: branch.name,
+                        totalStores: storeIds.length,
+                        completionRate,
+                        turtleBadges: overdue, // Turtle badges = overdue count
+                        overdueTasks: overdue,
+                        healthStatus
+                    });
+                }
+
+                // Sort by completion rate ascending (worst first)
+                result.sort((a, b) => a.completionRate - b.completionRate);
+                setRosterData(result);
+            } catch (err) {
+                console.error('BranchHealthRoster fetch error:', err);
+            } finally {
+                setLoading(false);
+            }
+        }
+
+        fetchRoster();
+    }, []);
+
+    if (loading) {
+        return (
+            <Card className="glass-card">
+                <CardContent className="flex items-center justify-center h-40">
+                    <Loader2 className="w-6 h-6 animate-spin text-indigo-500" />
+                    <span className="ml-2 text-slate-500">Memuat data cabang...</span>
+                </CardContent>
+            </Card>
+        );
+    }
 
     return (
         <Card className="glass-card overflow-hidden">
@@ -51,7 +121,9 @@ export function BranchHealthRoster() {
                             </tr>
                         </thead>
                         <tbody>
-                            {mockRosterData.map((branch) => (
+                            {rosterData.length === 0 ? (
+                                <tr><td colSpan={6} className="px-6 py-8 text-center text-slate-400">Belum ada data Action Plan.</td></tr>
+                            ) : rosterData.map((branch) => (
                                 <tr key={branch.id} className="bg-white border-b border-slate-100 hover:bg-slate-50 transition-colors">
                                     <td className="px-6 py-4 font-bold text-slate-900 flex items-center gap-3">
                                         <div className={`w-3 h-3 rounded-full ${branch.healthStatus === 'Excellent' ? 'bg-emerald-500 shadow-[0_0_10px_rgba(16,185,129,0.5)]' :

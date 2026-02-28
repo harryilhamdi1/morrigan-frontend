@@ -159,8 +159,8 @@ export default async function DashboardPage() {
                 return {
                     name: waveName,
                     storeScore: Math.round(tScore * 10) / 10,
-                    avgNational: 80, // Mock baseline
-                    avgBranch: 82    // Mock baseline
+                    avgNational: Math.round(tScore * 10) / 10, // Sama dengan storeScore untuk aggregate view
+                    avgBranch: Math.round(tScore * 10) / 10
                 }
             }).slice(0, 5).reverse();
         }

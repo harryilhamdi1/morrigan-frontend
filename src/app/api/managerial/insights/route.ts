@@ -9,11 +9,10 @@ export async function GET(request: Request) {
     const { data: { user }, error: authError } = await supabase.auth.getUser();
 
     const { searchParams } = new URL(request.url);
-    const scope = searchParams.get('scope') || 'branch'; // 'branch' atau 'region'
+    const scope = searchParams.get('scope') || 'branch';
 
     if (authError || !user) {
-        console.warn("Falling back to mock data for /api/managerial/insights (No Auth)");
-        return NextResponse.json(getMockAiInsights(scope));
+        return NextResponse.json({ error: 'Unauthorized. Silakan login terlebih dahulu.' }, { status: 401 });
     }
 
     try {
@@ -24,7 +23,9 @@ export async function GET(request: Request) {
             .eq('id', user.id)
             .single();
 
-        if (!profile) throw new Error("Profile not found");
+        if (!profile) {
+            return NextResponse.json({ error: 'Profil pengguna tidak ditemukan.' }, { status: 403 });
+        }
 
         let storeIds: string[] = [];
         let storeNamesMap = new Map();
@@ -34,130 +35,131 @@ export async function GET(request: Request) {
             const { data: stores } = await supabase.from('stores').select('id, name').eq('branch_id', profile.branch_id);
             if (stores) stores.forEach(s => { storeIds.push(s.id); storeNamesMap.set(s.id, s.name); });
         } else if (scope === 'region' && profile.region_id) {
-            // Region mencakup banyak branch
             const { data: branches } = await supabase.from('branches').select('id').eq('region_id', profile.region_id);
             if (branches && branches.length > 0) {
                 const bIds = branches.map(b => b.id);
                 const { data: stores } = await supabase.from('stores').select('id, name').in('branch_id', bIds);
                 if (stores) stores.forEach(s => { storeIds.push(s.id); storeNamesMap.set(s.id, s.name); });
             }
+        } else if (['HCBP', 'Superadmin'].includes(profile.role)) {
+            const { data: stores } = await supabase.from('stores').select('id, name');
+            if (stores) stores.forEach(s => { storeIds.push(s.id); storeNamesMap.set(s.id, s.name); });
         }
 
-        // Jika tidak ada data toko, kembalikan mock aman
         if (storeIds.length === 0) {
-            return NextResponse.json(getMockAiInsights(scope));
+            return NextResponse.json({
+                meta: { persona: scope === 'region' ? 'Executive Advisor' : 'Tactical Area Manager', analysisPeriod: 'N/A', analyzedStores: 0 },
+                bottlenecks: [], praises: [], hotspots: []
+            });
         }
 
-        // 2. Kalkulasi "Hotspots" Berdasarkan Real Data Action Plans (Overdue logic)
+        // 2. Kalkulasi "Hotspots" dari Real Action Plans
         const { data: plans } = await supabase
             .from('action_plans')
-            .select('store_id, status, due_date')
+            .select('store_id, status, due_date, journey_name, rca_description, blocker_text')
             .in('store_id', storeIds);
 
         const hotspots: any[] = [];
+        const bottlenecks: any[] = [];
+        const praises: any[] = [];
 
         if (plans && plans.length > 0) {
-            const overdueByStore: Record<string, number> = {};
             const now = new Date();
+            const overdueByStore: Record<string, number> = {};
+            const resolvedByStore: Record<string, number> = {};
+            const journeyFailCount: Record<string, number> = {};
+            const blockerCount: Record<string, number> = {};
 
             plans.forEach(p => {
-                if (p.status === 'Requires Action' && new Date(p.due_date) < now) {
+                // Count overdue per store
+                if (p.status === 'Requires Action' && p.due_date && new Date(p.due_date) < now) {
                     overdueByStore[p.store_id] = (overdueByStore[p.store_id] || 0) + 1;
                 }
+
+                // Count resolved per store
+                if (p.status === 'Resolved') {
+                    resolvedByStore[p.store_id] = (resolvedByStore[p.store_id] || 0) + 1;
+                }
+
+                // Count failed journeys across stores
+                if (p.status === 'Requires Action') {
+                    const jName = p.journey_name.substring(0, 30);
+                    journeyFailCount[jName] = (journeyFailCount[jName] || 0) + 1;
+                }
+
+                // Count blockers
+                if (p.blocker_text) {
+                    const blockerKey = p.blocker_text.substring(0, 50);
+                    blockerCount[blockerKey] = (blockerCount[blockerKey] || 0) + 1;
+                }
             });
 
-            // Cari toko dengan pelanggaran terbanyak
-            const sortedStores = Object.keys(overdueByStore).sort((a, b) => overdueByStore[b] - overdueByStore[a]);
+            // Top 3 Hotspot stores (most overdue)
+            const sortedStores = Object.keys(overdueByStore)
+                .sort((a, b) => overdueByStore[b] - overdueByStore[a])
+                .slice(0, 3);
 
-            if (sortedStores.length > 0) {
-                const topOffenderId = sortedStores[0];
+            sortedStores.forEach((storeId, idx) => {
                 hotspots.push({
-                    id: `hs-db-${topOffenderId}`,
-                    entityName: storeNamesMap.get(topOffenderId) || 'Unknown Store',
-                    metric: `${overdueByStore[topOffenderId]} Action Plans Overdue`,
-                    flagReason: 'Sistem mendeteksi pelambatan eksekusi kritis melewati batas waktu (SLA) yang ditentukan.'
+                    id: `hs-${idx + 1}`,
+                    entityName: storeNamesMap.get(storeId) || 'Unknown Store',
+                    metric: `${overdueByStore[storeId]} Action Plans Overdue`,
+                    flagReason: 'Toko ini memiliki jumlah keterlambatan Action Plan terbanyak di wilayah Anda.'
                 });
-            }
+            });
+
+            // Top bottleneck (most common failing journey across stores)
+            const topJourneys = Object.entries(journeyFailCount)
+                .sort(([, a], [, b]) => b - a)
+                .slice(0, 2);
+
+            topJourneys.forEach(([journey, count], idx) => {
+                bottlenecks.push({
+                    id: `bn-${idx + 1}`,
+                    title: `${journey} - Masalah Sistemik`,
+                    description: `${count} toko di wilayah Anda masih memiliki Action Plan aktif untuk Journey ini. Ini mengindikasikan masalah yang memerlukan intervensi tingkat cabang.`,
+                    severity: count > 10 ? 'High' : 'Medium',
+                    affectedPercentage: Math.round((count / storeIds.length) * 100)
+                });
+            });
+
+            // Top resolved store (praise)
+            const topResolved = Object.entries(resolvedByStore)
+                .sort(([, a], [, b]) => b - a)
+                .slice(0, 1);
+
+            topResolved.forEach(([storeId, count]) => {
+                praises.push({
+                    id: 'pr-1',
+                    title: `${storeNamesMap.get(storeId) || 'Unknown'} - Eksekutor Tercepat`,
+                    description: `Toko ini telah menyelesaikan ${count} Action Plan. Tingkat kedisiplinan patut dijadikan contoh.`
+                });
+            });
         }
 
-        // Jika database belum ada overdue, fallback hotspot
+        // Default messages when no data patterns found
         if (hotspots.length === 0) {
             hotspots.push({
-                id: 'hs-db-empty',
-                entityName: 'All Stores in Scope',
+                id: 'hs-0',
+                entityName: 'Seluruh Toko',
                 metric: 'SLA 100%',
-                flagReason: 'Saat ini belum ada data keterlambatan komplain tercatat di database.'
+                flagReason: 'Tidak ada keterlambatan Action Plan yang tercatat saat ini.'
             });
         }
 
-        // Kombinasikan AI teks statis (karena cron/gemini belum jalan nyambung ke db tabel) dengan DB Hotspots
-        const payload = {
+        return NextResponse.json({
             meta: {
                 persona: scope === 'region' ? 'Executive Advisor (Gemini Pro)' : 'Tactical Area Manager (Gemini Flash)',
-                analysisPeriod: 'Current Live Sprint',
+                analysisPeriod: 'Data Action Plan Aktif',
                 analyzedStores: storeIds.length
             },
-            bottlenecks: [
-                {
-                    id: 'bn-1',
-                    title: scope === 'region' ? '[LIVE] National IT System Failure' : '[LIVE] Distribusi Seragam Tertunda',
-                    description: scope === 'region'
-                        ? 'Analisa teks RCA mencatat keluhan Sistem POS versi 2.4.'
-                        : 'Analisa teks RCA mencatat kekosongan stok seragam di Gudang Cabang.',
-                    severity: 'High',
-                    affectedPercentage: scope === 'region' ? 75 : 60
-                }
-            ],
-            praises: [
-                {
-                    id: 'pr-1',
-                    title: '[LIVE] Respons Cepat Komplain Pelanggan',
-                    description: 'Tingkat resolusi komplain diselesaikan dalam waktu rata-rata 24 jam.'
-                }
-            ],
-            hotspots: hotspots // Ini REAL dari Supabase
-        };
-
-        return NextResponse.json(payload);
+            bottlenecks,
+            praises,
+            hotspots
+        });
 
     } catch (error) {
         console.error("Database Error in /api/managerial/insights:", error);
-        return NextResponse.json(getMockAiInsights(scope));
+        return NextResponse.json({ error: 'Terjadi kesalahan server internal.' }, { status: 500 });
     }
-}
-
-function getMockAiInsights(scope: string) {
-    return {
-        meta: {
-            persona: scope === 'region' ? 'Executive Advisor (Mock)' : 'Tactical Area Manager (Mock)',
-            analysisPeriod: 'Week 1, Feb 2025',
-            analyzedStores: scope === 'region' ? 142 : 18
-        },
-        bottlenecks: [
-            {
-                id: 'bn-1',
-                title: scope === 'region' ? 'National IT System Failure' : 'Distribusi Seragam Staff Terhambat',
-                description: scope === 'region'
-                    ? '3 dari 5 Cabang melaporkan mayoritas komplain kasir disebabkan oleh Sistem POS versi 2.4 yang sering freeze di akhir pekan.'
-                    : '60% Toko mereport staf baru tidak menggunakan seragam standar karena stok Gudang Cabang kosong sejak 2 minggu lalu.',
-                severity: 'High',
-                affectedPercentage: scope === 'region' ? 75 : 60
-            }
-        ],
-        praises: [
-            {
-                id: 'pr-1',
-                title: 'Peningkatan Signifikan Area Fitting Room',
-                description: 'Terdapat penurunan drastis komplain kebersihan ruang pas (turun 80%) berkat implementasi Cleaning Roster per 2 jam yang diinisiasi minggu lalu.'
-            }
-        ],
-        hotspots: [
-            {
-                id: 'hs-1',
-                entityName: 'Store Eiger Cihampelas',
-                metric: '7 Action Plans Overdue',
-                flagReason: 'Toko ini konsisten menunda penyelesaian RCA Facility selama 3 minggu berturut-turut.'
-            }
-        ]
-    };
 }

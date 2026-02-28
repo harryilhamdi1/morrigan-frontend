@@ -25,8 +25,32 @@ const supabase = createClient(supabaseUrl, supabaseServiceKey, {
 const DEFAULT_PASSWORD = 'password123';
 
 async function clearDatabase() {
-    console.log('🧹 Clearing existing data (Cascade deletes handle child records)...');
-    await supabase.from('regions').delete().neq('id', '00000000-0000-0000-0000-000000000000');
+    console.log('🧹 Clearing existing data (bottom-up order to respect FK constraints)...');
+
+    // Delete child tables first
+    const { error: e1 } = await supabase.from('action_plans').delete().neq('id', '00000000-0000-0000-0000-000000000000');
+    if (e1) console.warn('  action_plans clear:', e1.message);
+    else console.log('  ✅ action_plans cleared');
+
+    const { error: e2 } = await supabase.from('wave_evaluations').delete().neq('id', '00000000-0000-0000-0000-000000000000');
+    if (e2) console.warn('  wave_evaluations clear:', e2.message);
+    else console.log('  ✅ wave_evaluations cleared');
+
+    const { error: e3 } = await supabase.from('user_profiles').delete().neq('id', '00000000-0000-0000-0000-000000000000');
+    if (e3) console.warn('  user_profiles clear:', e3.message);
+    else console.log('  ✅ user_profiles cleared');
+
+    const { error: e4 } = await supabase.from('stores').delete().neq('id', '00000000-0000-0000-0000-000000000000');
+    if (e4) console.warn('  stores clear:', e4.message);
+    else console.log('  ✅ stores cleared');
+
+    const { error: e5 } = await supabase.from('branches').delete().neq('id', '00000000-0000-0000-0000-000000000000');
+    if (e5) console.warn('  branches clear:', e5.message);
+    else console.log('  ✅ branches cleared');
+
+    const { error: e6 } = await supabase.from('regions').delete().neq('id', '00000000-0000-0000-0000-000000000000');
+    if (e6) console.warn('  regions clear:', e6.message);
+    else console.log('  ✅ regions cleared');
 
     // Clean up auth users
     const { data: users } = await supabase.auth.admin.listUsers({ perPage: 1000 });
@@ -36,6 +60,7 @@ async function clearDatabase() {
             await supabase.auth.admin.deleteUser(u.id);
         }
     }
+    console.log('🧹 Database cleared successfully!');
 }
 
 async function seedFromCsv() {

@@ -10,34 +10,43 @@ export async function GET(request: Request) {
     // Pastikan user sudah login
     const { data: { user }, error: authError } = await supabase.auth.getUser();
 
-    // JIKA TIDAK ADA SESI / GAGAL KONEK DB (Fallback ke Mock Data untuk Development)
     if (authError || !user) {
-        console.warn("No active Supabase session found, falling back to mock data for /api/store/summary");
-        return NextResponse.json(getMockData());
+        return NextResponse.json({ error: 'Unauthorized. Silakan login terlebih dahulu.' }, { status: 401 });
     }
 
     try {
         // 1. Ambil Profil User untuk mengetahui Store ID mereka
         const { data: profile, error: profileError } = await supabase
             .from('user_profiles')
-            .select('store_id, role, stores(name, store_code, league_status), branches(name), regions(name)')
+            .select('store_id, role, branch_id, region_id')
             .eq('id', user.id)
             .single();
 
-        if (profileError) {
-            console.error("[API/summary] Error fetching profile for", user.id, ":", profileError);
+        if (profileError || !profile) {
+            return NextResponse.json({ error: 'Profil pengguna tidak ditemukan.' }, { status: 403 });
         }
 
-        if (!profile || !profile.store_id) {
-            console.error("[API/summary] User profile missing or no store_id:", profile);
-            console.warn("Falling back to mock data instead of 403 to prevent UI crash.");
-            return NextResponse.json(getMockData());
+        // Jika user bukan Store Head, kita perlu handle secara berbeda
+        // Untuk saat ini, ambil store_id dari query params jika user bukan Store Head
+        const url = new URL(request.url);
+        let storeId = profile.store_id;
+
+        if (!storeId && ['Branch Head', 'Regional Director', 'HCBP', 'Superadmin'].includes(profile.role)) {
+            storeId = url.searchParams.get('storeId');
         }
 
-        const storeId = profile.store_id;
-        const storeInfo = profile.stores as any;
+        if (!storeId) {
+            return NextResponse.json({ error: 'Store ID tidak ditemukan. Akun Anda tidak terhubung ke toko manapun.' }, { status: 404 });
+        }
 
-        // 2. Ambil Historis Wave Evaluations Toko ini (5 Wave Terakhir)
+        // 2. Ambil informasi toko
+        const { data: storeInfo } = await supabase
+            .from('stores')
+            .select('id, name, store_code, league_status, branch_id, branches(name, region_id, regions(name))')
+            .eq('id', storeId)
+            .single();
+
+        // 3. Ambil Historis Wave Evaluations Toko ini (5 Wave Terakhir)
         const { data: waves } = await supabase
             .from('wave_evaluations')
             .select('*')
@@ -45,105 +54,111 @@ export async function GET(request: Request) {
             .order('created_at', { ascending: false })
             .limit(5);
 
-        // Jika DB kosong, fallback ke mock
         if (!waves || waves.length === 0) {
-            return NextResponse.json(getMockData());
+            return NextResponse.json({
+                store: {
+                    id: storeId,
+                    name: storeInfo?.name || 'Toko Tidak Dikenal',
+                    code: storeInfo?.store_code || '---',
+                    league: storeInfo?.league_status || 'Rising Star',
+                    region: (storeInfo?.branches as any)?.regions?.name || '-',
+                    branch: (storeInfo?.branches as any)?.name || '-'
+                },
+                waveHistory: [],
+                radarData: [],
+                activeAlert: {
+                    hasUrgentFeedback: false,
+                    message: "ℹ️ Belum ada data evaluasi Wave untuk toko ini. Data akan tersedia setelah Mystery Shopper mengevaluasi."
+                }
+            });
         }
 
         // Urutkan waves secara kronologis (terlama ke terbaru) untuk chart
         const sortedWaves = waves.reverse();
 
-        // 3. Format data untuk Recharts (Wave History Spline)
+        // 4. Hitung rata-rata nasional dan cabang secara real
+        const latestWaveName = sortedWaves[sortedWaves.length - 1].wave_name;
+
+        const { data: nationalAvgs } = await supabase
+            .from('wave_evaluations')
+            .select('total_score')
+            .eq('wave_name', latestWaveName);
+
+        const avgNational = nationalAvgs && nationalAvgs.length > 0
+            ? parseFloat((nationalAvgs.reduce((sum: number, w: any) => sum + parseFloat(w.total_score || 0), 0) / nationalAvgs.length).toFixed(2))
+            : 0;
+
+        const { data: branchStores } = await supabase
+            .from('stores')
+            .select('id')
+            .eq('branch_id', storeInfo?.branch_id || '');
+
+        const branchStoreIds = branchStores?.map((s: any) => s.id) || [];
+
+        const { data: branchAvgs } = branchStoreIds.length > 0
+            ? await supabase
+                .from('wave_evaluations')
+                .select('total_score')
+                .eq('wave_name', latestWaveName)
+                .in('store_id', branchStoreIds)
+            : { data: null };
+
+        const avgBranch = branchAvgs && branchAvgs.length > 0
+            ? parseFloat((branchAvgs.reduce((sum: number, w: any) => sum + parseFloat(w.total_score || 0), 0) / branchAvgs.length).toFixed(2))
+            : 0;
+
+        // 5. Format data untuk Recharts (Wave History Spline)
         const waveHistory = sortedWaves.map((w: any) => ({
             name: w.wave_name,
             storeScore: parseFloat(w.total_score || 0),
-            avgNational: 80, // Idealnya ini di-query dari agregat nasional
-            avgBranch: 82    // Idealnya ini di-query dari agregat cabang
+            avgNational,
+            avgBranch
         }));
 
-        // 4. Ambil Wave Terbaru untuk Radar Chart
+        // 6. Ambil Wave Terbaru untuk Radar Chart
         const latestWave = sortedWaves[sortedWaves.length - 1];
         const radarData = [
-            { subject: 'A. Facility', A: parseFloat(latestWave.score_a || 0), fullMark: 100 },
-            { subject: 'B. Welcome', A: parseFloat(latestWave.score_b || 0), fullMark: 100 },
-            { subject: 'C. Atmosphere', A: parseFloat(latestWave.score_c || 0), fullMark: 100 },
-            { subject: 'D. Product Knowledge', A: parseFloat(latestWave.score_d || 0), fullMark: 100 },
-            { subject: 'E. Needs Analysis', A: parseFloat(latestWave.score_e || 0), fullMark: 100 },
-            { subject: 'F. Cross Selling', A: parseFloat(latestWave.score_f || 0), fullMark: 100 },
-            { subject: 'G. Objection', A: parseFloat(latestWave.score_g || 0), fullMark: 100 },
-            { subject: 'H. Closing', A: parseFloat(latestWave.score_h || 0), fullMark: 100 },
-            { subject: 'I. Cashier', A: parseFloat(latestWave.score_i || 0), fullMark: 100 },
-            { subject: 'J. Farewell', A: parseFloat(latestWave.score_j || 0), fullMark: 100 },
-            { subject: 'K. Grooming', A: parseFloat(latestWave.score_k || 0), fullMark: 100 },
+            { subject: 'A. Tampilan Depan', A: parseFloat(latestWave.score_a || 0), fullMark: 100 },
+            { subject: 'B. Sambutan', A: parseFloat(latestWave.score_b || 0), fullMark: 100 },
+            { subject: 'C. Suasana', A: parseFloat(latestWave.score_c || 0), fullMark: 100 },
+            { subject: 'D. Penampilan', A: parseFloat(latestWave.score_d || 0), fullMark: 100 },
+            { subject: 'E. Pelayanan', A: parseFloat(latestWave.score_e || 0), fullMark: 100 },
+            { subject: 'F. Fitting Room', A: parseFloat(latestWave.score_f || 0), fullMark: 100 },
+            { subject: 'G. Rekomendasi', A: parseFloat(latestWave.score_g || 0), fullMark: 100 },
+            { subject: 'H. Kasir', A: parseFloat(latestWave.score_h || 0), fullMark: 100 },
+            { subject: 'I. Penampilan Kasir', A: parseFloat(latestWave.score_i || 0), fullMark: 100 },
+            { subject: 'J. Toilet', A: parseFloat(latestWave.score_j || 0), fullMark: 100 },
+            { subject: 'K. Salam Perpisahan', A: parseFloat(latestWave.score_k || 0), fullMark: 100 },
         ];
 
-        // 5. Cek Action Plans yang Nunggak (Active Alerts)
+        // 7. Cek Action Plans yang Nunggak (Active Alerts)
         const { count: overdueCount } = await supabase
             .from('action_plans')
             .select('*', { count: 'exact', head: true })
             .eq('store_id', storeId)
-            .eq('status', 'Requires Action')
-            .lt('due_date', new Date().toISOString());
+            .eq('status', 'Requires Action');
 
         return NextResponse.json({
             store: {
                 id: storeId,
-                name: storeInfo?.name || 'Unknown Store',
+                name: storeInfo?.name || 'Toko Tidak Dikenal',
                 code: storeInfo?.store_code || '---',
-                league: storeInfo?.league_status || 'Unranked',
-                region: (profile.regions as any)?.name || 'Unknown',
-                branch: (profile.branches as any)?.name || 'Unknown'
+                league: storeInfo?.league_status || 'Rising Star',
+                region: (storeInfo?.branches as any)?.regions?.name || '-',
+                branch: (storeInfo?.branches as any)?.name || '-'
             },
             waveHistory,
             radarData,
             activeAlert: {
                 hasUrgentFeedback: (overdueCount || 0) > 0,
                 message: (overdueCount || 0) > 0
-                    ? `⚠️ [URGENT] Anda memiliki ${overdueCount} Action Plan Overdue. Segera selesaikan untuk menghindari Turtle Badge pencatatan otomatis.`
+                    ? `⚠️ [URGENT] Anda memiliki ${overdueCount} Action Plan yang harus diselesaikan. Segera selesaikan untuk menghindari Turtle Badge.`
                     : "✅ Semua Action Plan berjalan On-Track."
             }
         });
 
     } catch (error) {
         console.error("Database Error in /api/store/summary:", error);
-        return NextResponse.json(getMockData());
+        return NextResponse.json({ error: 'Terjadi kesalahan server internal.' }, { status: 500 });
     }
-}
-
-// Fungsi Fallback jika Supabase belum di-seed atau tidak ada Sesi
-function getMockData() {
-    return {
-        store: {
-            id: 'S001',
-            name: 'Eiger Store Bandung Indah Plaza (Mock)',
-            code: 'BIP01',
-            league: 'Gold League',
-            region: 'Jawa Barat',
-            branch: 'Bandung Raya'
-        },
-        waveHistory: [
-            { name: 'Wave 1 2024', storeScore: 82, avgNational: 78, avgBranch: 80 },
-            { name: 'Wave 2 2024', storeScore: 85, avgNational: 79, avgBranch: 81 },
-            { name: 'Wave 3 2024', storeScore: 84, avgNational: 80, avgBranch: 82 },
-            { name: 'Wave 4 2024', storeScore: 91, avgNational: 81, avgBranch: 84 },
-            { name: 'Wave 1 2025', storeScore: 96, avgNational: 82, avgBranch: 86 },
-        ],
-        radarData: [
-            { subject: 'A. Facility', A: 100, fullMark: 100 },
-            { subject: 'B. Welcome', A: 85, fullMark: 100 },
-            { subject: 'C. Atmosphere', A: 90, fullMark: 100 },
-            { subject: 'D. Product Knowledge', A: 75, fullMark: 100 },
-            { subject: 'E. Needs Analysis', A: 60, fullMark: 100 },
-            { subject: 'F. Cross Selling', A: 80, fullMark: 100 },
-            { subject: 'G. Objection', A: 100, fullMark: 100 },
-            { subject: 'H. Closing', A: 88, fullMark: 100 },
-            { subject: 'I. Cashier', A: 95, fullMark: 100 },
-            { subject: 'J. Farewell', A: 100, fullMark: 100 },
-            { subject: 'K. Grooming', A: 100, fullMark: 100 },
-        ],
-        activeAlert: {
-            hasUrgentFeedback: true,
-            message: "⚠️ [URGENT DEVELOPMENT MOCK] Supabase connection failed or unauthenticated. Showing offline mock data."
-        }
-    };
 }

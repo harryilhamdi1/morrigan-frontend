@@ -89,8 +89,18 @@ export default async function NationalAnalysisPage() {
     // 5. Journey averages for latest wave
     const avg = (key: string) => {
         if (latestWaves.length === 0) return 0;
-        const total = latestWaves.reduce((sum, w: any) => sum + parseFloat(w[key] || 0), 0);
-        return Math.round((total / latestWaves.length) * 10) / 10;
+        let validCount = 0;
+        const total = latestWaves.reduce((sum, w: any) => {
+            if (w[key] !== null && w[key] !== undefined) {
+                const val = parseFloat(String(w[key]));
+                if (!isNaN(val)) {
+                    validCount++;
+                    return sum + val;
+                }
+            }
+            return sum;
+        }, 0);
+        return validCount > 0 ? Math.round((total / validCount) * 10) / 10 : 0;
     };
 
     const journeyScores = Object.keys(JOURNEY_NAMES).map(key => {

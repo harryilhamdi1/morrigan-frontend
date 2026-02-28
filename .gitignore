@@ -42,3 +42,15 @@ next-env.d.ts
 # Secrets
 google-credentials.json
 project_rules/README.md
+
+# Legacy & Data Files
+morrigan-backend/
+CSV/
+*.ps1
+extract_feedback.js
+find_rising_stars.js
+sing_stars_output.txt
+*.sql
+raw_feedbacks.json
+records*.json
+Master*.csv

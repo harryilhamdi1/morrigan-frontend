@@ -23,11 +23,10 @@ const getMenuByRole = (role: string = '') => {
     }
 
     const allMenus = [
-        { name: 'Dashboard (KPI)', icon: LayoutDashboard, href: '/dashboard', roles: ['Store Head', 'Branch Head', 'Regional Director', 'HCBP', 'Superadmin'] },
-        { name: 'National Data Analysis', icon: Users, href: '/dashboard/national', roles: ['HCBP', 'Superadmin'] },
+        { name: 'National Data Analysis', icon: Users, href: '/dashboard', roles: ['HCBP', 'Superadmin'] },
         { name: 'Regional Data Analysis', icon: LineChart, href: '/dashboard/region', roles: ['Regional Director', 'HCBP', 'Superadmin'] },
         { name: 'Branch Data Analysis', icon: ShieldCheck, href: '/dashboard/branch', roles: ['Branch Head', 'Regional Director', 'HCBP', 'Superadmin'] },
-        { name: 'Store Data Analysis', icon: Target, href: '/dashboard/store', roles: ['Store Head', 'Branch Head', 'Regional Director', 'HCBP', 'Superadmin'] },
+        { name: 'Store Action Plan', icon: Target, href: '/dashboard/store', roles: ['Store Head', 'Branch Head', 'Regional Director', 'HCBP', 'Superadmin'] },
     ];
 
     return allMenus.filter(menu => menu.roles.includes(role));

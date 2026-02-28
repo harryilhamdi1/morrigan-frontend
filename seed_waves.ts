@@ -119,51 +119,61 @@ async function seedWaves() {
                 const storeInfo = storeMap.get(siteCode);
                 if (!storeInfo) continue; // Skip stores not in our DB
 
-                // Calculate section scores
                 const sectionScores: Record<string, number | null> = {};
                 const failedItems: Record<string, { code: number, item: string }[]> = {};
 
-                for (const [letter, config] of Object.entries(SECTION_ITEMS)) {
-                    let itemsCount = 0;
-                    let itemsScore = 0;
-                    const failed: { code: number, item: string }[] = [];
+                // Find header keys for sections
+                const secH: Record<string, string> = {};
+                headers.forEach(h => {
+                    const ht = h.trim();
+                    if (ht.startsWith('(Section) A.')) secH['A'] = h;
+                    else if (ht.startsWith('(Section) B.')) secH['B'] = h;
+                    else if (ht.startsWith('(Section) C.')) secH['C'] = h;
+                    else if (ht.startsWith('(Section) D.')) secH['D'] = h;
+                    else if (ht.startsWith('(Section) E.')) secH['E'] = h;
+                    else if (ht.startsWith('(Section) F.')) secH['F'] = h;
+                    else if (ht.startsWith('(Section) G.')) secH['G'] = h;
+                    else if (ht.startsWith('(Section) H.')) secH['H'] = h;
+                    else if (ht.startsWith('(Section) I.')) secH['I'] = h;
+                    else if (ht.startsWith('(Section) J.')) secH['J'] = h;
+                    else if (ht.startsWith('(Section) K.')) secH['K'] = h;
+                });
 
+                for (const [letter, config] of Object.entries(SECTION_ITEMS)) {
+                    // Extract granular failed items (kept for detailed tracking)
+                    const failed: { code: number, item: string }[] = [];
                     for (const code of config.codes) {
                         if (config.exclude.includes(code)) continue;
                         const col = getCol(code);
                         if (!col) continue;
                         const val = record[col];
                         const score = parseItemScore(val);
-                        if (score !== null) {
-                            itemsCount++;
-                            itemsScore += score;
-                            if (score === 0) {
-                                const itemName = col.replace(/^\(\d+\)\s*/, '').substring(0, 120);
-                                failed.push({ code, item: itemName });
+                        if (score === 0) {
+                            const itemName = col.replace(/^\(\d+\)\s*/, '').substring(0, 120);
+                            failed.push({ code, item: itemName });
+                        }
+                    }
+                    if (failed.length > 0) failedItems[letter] = failed;
+
+                    // Fetch the exact score from the Section columns (F-P)
+                    sectionScores[letter] = null;
+                    if (secH[letter]) {
+                        const csvStr = record[secH[letter]];
+                        if (csvStr && String(csvStr).trim() !== '') {
+                            const parseVal = parseFloat(String(csvStr).replace(',', '.'));
+                            if (!isNaN(parseVal)) {
+                                sectionScores[letter] = parseVal;
                             }
                         }
                     }
-
-                    sectionScores[letter] = itemsCount > 0 ? (itemsScore / itemsCount) * 100 : null;
-                    if (failed.length > 0) failedItems[letter] = failed;
                 }
 
-                // Calculate total weighted score
-                let earnedPoints = 0;
-                let maxPoints = 0;
-                for (const [letter, score] of Object.entries(sectionScores)) {
-                    if (score === null) continue;
-                    const w = SECTION_WEIGHTS[letter] || 0;
-                    earnedPoints += (score / 100) * w;
-                    maxPoints += w;
-                }
-
-                // Try to use CSV Final Score if available
+                // Strictly use the Final Score column (Q)
+                let totalScore = 0;
                 const finalScoreKey = headers.find(h => h === 'Final Score' || h.trim() === 'Final Score');
-                let totalScore = maxPoints > 0 ? (earnedPoints / maxPoints) * 100 : 0;
                 if (finalScoreKey && record[finalScoreKey]) {
                     const csvVal = parseFloat(String(record[finalScoreKey]).replace(',', '.'));
-                    if (!isNaN(csvVal) && csvVal > 0) totalScore = csvVal;
+                    if (!isNaN(csvVal)) totalScore = csvVal;
                 }
 
                 // Build granular_failed_items JSONB

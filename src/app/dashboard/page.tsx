@@ -23,10 +23,10 @@ const JOURNEY_NAMES: Record<string, string> = {
 };
 
 const JOURNEY_SHORT: Record<string, string> = {
-    a: 'A. Facility', b: 'B. Welcome', c: 'C. Atmosphere',
-    d: 'D. Product Knowledge', e: 'E. Needs Analysis', f: 'F. Cross Selling',
-    g: 'G. Objection', h: 'H. Closing', i: 'I. Cashier',
-    j: 'J. Toilet', k: 'K. Grooming',
+    a: 'A. Tampak Depan', b: 'B. Sambutan', c: 'C. Suasana',
+    d: 'D. Penampilan RA', e: 'E. Pelayanan & Produk', f: 'F. Cross Selling',
+    g: 'G. Rekomendasi', h: 'H. Pembayaran', i: 'I. Kasir',
+    j: 'J. Toilet', k: 'K. Salam Penutup',
 };
 
 export default async function NationalAnalysisPage() {

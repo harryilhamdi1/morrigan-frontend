@@ -24,11 +24,10 @@ const getMenuByRole = (role: string = '') => {
 
     const allMenus = [
         { name: 'Dashboard (KPI)', icon: LayoutDashboard, href: '/dashboard', roles: ['Store Head', 'Branch Head', 'Regional Director', 'HCBP', 'Superadmin'] },
-        // Exact Graphical Dashboards mapped to their respective paths
-        { name: 'My Mission Board', icon: Target, href: '/dashboard/store', roles: ['Store Head'] },
-        { name: 'Branch Approvals', icon: ShieldCheck, href: '/dashboard/branch', roles: ['Branch Head', 'HCBP', 'Superadmin'] },
-        { name: 'Wave Analytics', icon: LineChart, href: '/dashboard/region', roles: ['Regional Director', 'HCBP', 'Superadmin'] },
-        { name: 'Executive Deck', icon: Users, href: '/dashboard/executive', roles: ['Regional Director', 'HCBP', 'Superadmin'] },
+        { name: 'National Data Analysis', icon: Users, href: '/dashboard/national', roles: ['HCBP', 'Superadmin'] },
+        { name: 'Regional Data Analysis', icon: LineChart, href: '/dashboard/region', roles: ['Regional Director', 'HCBP', 'Superadmin'] },
+        { name: 'Branch Data Analysis', icon: ShieldCheck, href: '/dashboard/branch', roles: ['Branch Head', 'Regional Director', 'HCBP', 'Superadmin'] },
+        { name: 'Store Data Analysis', icon: Target, href: '/dashboard/store', roles: ['Store Head', 'Branch Head', 'Regional Director', 'HCBP', 'Superadmin'] },
     ];
 
     return allMenus.filter(menu => menu.roles.includes(role));

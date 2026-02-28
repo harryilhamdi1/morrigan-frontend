@@ -16,7 +16,7 @@ interface BranchData {
     healthStatus: 'Excellent' | 'Warning' | 'Critical';
 }
 
-export function BranchHealthRoster() {
+export function BranchHealthRoster({ regionId }: { regionId?: string }) {
     const [rosterData, setRosterData] = useState<BranchData[]>([]);
     const [loading, setLoading] = useState(true);
 
@@ -26,9 +26,9 @@ export function BranchHealthRoster() {
                 const supabase = createClient();
 
                 // Get branches with their stores
-                const { data: branches } = await supabase
-                    .from('branches')
-                    .select('id, name, stores(id)');
+                let query = supabase.from('branches').select('id, name, stores(id)');
+                if (regionId) query = query.eq('region_id', regionId);
+                const { data: branches } = await query;
 
                 if (!branches) { setLoading(false); return; }
 
@@ -81,7 +81,7 @@ export function BranchHealthRoster() {
         }
 
         fetchRoster();
-    }, []);
+    }, [regionId]);
 
     if (loading) {
         return (

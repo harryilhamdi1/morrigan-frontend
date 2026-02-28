@@ -10,6 +10,8 @@ export async function GET(request: Request) {
 
     const { searchParams } = new URL(request.url);
     const scope = searchParams.get('scope') || 'branch';
+    const requestedRegionId = searchParams.get('region_id');
+    const requestedBranchId = searchParams.get('branch_id');
 
     if (authError || !user) {
         return NextResponse.json({ error: 'Unauthorized. Silakan login terlebih dahulu.' }, { status: 401 });
@@ -31,14 +33,30 @@ export async function GET(request: Request) {
         let storeNamesMap = new Map();
 
         // Ambil store IDs berdasarkan Scope
-        if (scope === 'branch' && profile.branch_id) {
-            const { data: stores } = await supabase.from('stores').select('id, name').eq('branch_id', profile.branch_id);
-            if (stores) stores.forEach(s => { storeIds.push(s.id); storeNamesMap.set(s.id, s.name); });
-        } else if (scope === 'region' && profile.region_id) {
-            const { data: branches } = await supabase.from('branches').select('id').eq('region_id', profile.region_id);
-            if (branches && branches.length > 0) {
-                const bIds = branches.map(b => b.id);
-                const { data: stores } = await supabase.from('stores').select('id, name').in('branch_id', bIds);
+        if (scope === 'branch') {
+            let targetBranchId = profile.branch_id;
+            if (['HCBP', 'Superadmin', 'Regional Director'].includes(profile.role) && requestedBranchId) {
+                targetBranchId = requestedBranchId;
+            }
+            if (targetBranchId) {
+                const { data: stores } = await supabase.from('stores').select('id, name').eq('branch_id', targetBranchId);
+                if (stores) stores.forEach(s => { storeIds.push(s.id); storeNamesMap.set(s.id, s.name); });
+            }
+        } else if (scope === 'region') {
+            let targetRegionId = profile.region_id;
+            if (['HCBP', 'Superadmin'].includes(profile.role) && requestedRegionId) {
+                targetRegionId = requestedRegionId;
+            }
+            if (targetRegionId) {
+                const { data: branches } = await supabase.from('branches').select('id').eq('region_id', targetRegionId);
+                if (branches && branches.length > 0) {
+                    const bIds = branches.map(b => b.id);
+                    const { data: stores } = await supabase.from('stores').select('id, name').in('branch_id', bIds);
+                    if (stores) stores.forEach(s => { storeIds.push(s.id); storeNamesMap.set(s.id, s.name); });
+                }
+            } else if (['HCBP', 'Superadmin'].includes(profile.role) && !requestedRegionId) {
+                // If they didn't specify, just get everything
+                const { data: stores } = await supabase.from('stores').select('id, name');
                 if (stores) stores.forEach(s => { storeIds.push(s.id); storeNamesMap.set(s.id, s.name); });
             }
         } else if (['HCBP', 'Superadmin'].includes(profile.role)) {

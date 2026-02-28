@@ -8,6 +8,9 @@ export async function GET(request: Request) {
     const supabase = await createClient();
     const { data: { user }, error: authError } = await supabase.auth.getUser();
 
+    const { searchParams } = new URL(request.url);
+    const requestedBranchId = searchParams.get('branch_id');
+
     if (authError || !user) {
         return NextResponse.json({ error: 'Unauthorized. Silakan login terlebih dahulu.' }, { status: 401 });
     }
@@ -28,11 +31,19 @@ export async function GET(request: Request) {
         let storeIds: string[] = [];
         let storeMap = new Map<string, { storeCode: string; name: string }>();
 
-        if (profile.role === 'Branch Head' && profile.branch_id) {
+        let targetBranchId: string | null = null;
+
+        if (profile.role === 'Branch Head') {
+            targetBranchId = profile.branch_id;
+        } else if (['HCBP', 'Superadmin', 'Regional Director'].includes(profile.role) && requestedBranchId) {
+            targetBranchId = requestedBranchId;
+        }
+
+        if (targetBranchId) {
             const { data: storesObj } = await supabase
                 .from('stores')
                 .select('id, store_code, name')
-                .eq('branch_id', profile.branch_id);
+                .eq('branch_id', targetBranchId);
             storesObj?.forEach(s => { storeMap.set(s.id, { storeCode: s.store_code, name: s.name }); });
             storeIds = storesObj?.map(s => s.id) || [];
         } else if (profile.role === 'Regional Director' && profile.region_id) {

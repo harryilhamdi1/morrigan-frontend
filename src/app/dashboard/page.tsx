@@ -81,7 +81,7 @@ export default async function DashboardPage() {
     // Fetch Wave History dan hitung Average Scores
     let waveHistory: any[] = [];
     let radarData: any[] = [];
-    let allJourneyScores: { id: string, name: string, score: number }[] = [];
+    let allJourneyScores: { id: string, name: string, score: number, fails: number }[] = [];
 
     if (storeIds.length > 0) {
         // Fetch ALL waves for these stores
@@ -119,6 +119,25 @@ export default async function DashboardPage() {
             const jJ = avg('score_j');
             const jK = avg('score_k');
 
+            const failedCount = (sectionCode: string) => {
+                return validWaves.reduce((sum: number, w: any) => {
+                    const items = w.granular_failed_items || [];
+                    return sum + items.reduce((acc: number, item: any) => acc + (item.section === sectionCode ? 1 : 0), 0);
+                }, 0);
+            };
+
+            const fA = failedCount('A');
+            const fB = failedCount('B');
+            const fC = failedCount('C');
+            const fD = failedCount('D');
+            const fE = failedCount('E');
+            const fF = failedCount('F');
+            const fG = failedCount('G');
+            const fH = failedCount('H');
+            const fI = failedCount('I');
+            const fJ = failedCount('J');
+            const fK = failedCount('K');
+
             radarData = [
                 { subject: 'A. Facility', A: jA, fullMark: 100 },
                 { subject: 'B. Welcome', A: jB, fullMark: 100 },
@@ -129,22 +148,22 @@ export default async function DashboardPage() {
                 { subject: 'G. Objection', A: jG, fullMark: 100 },
                 { subject: 'H. Closing', A: jH, fullMark: 100 },
                 { subject: 'I. Cashier', A: jI, fullMark: 100 },
-                { subject: 'J. Farewell', A: jJ, fullMark: 100 },
+                { subject: 'J. Toilet', A: jJ, fullMark: 100 },
                 { subject: 'K. Grooming', A: jK, fullMark: 100 },
             ];
 
             allJourneyScores = [
-                { id: 'a', name: 'A. Facility', score: jA },
-                { id: 'b', name: 'B. Welcome', score: jB },
-                { id: 'c', name: 'C. Atmosphere', score: jC },
-                { id: 'd', name: 'D. Product Knowledge', score: jD },
-                { id: 'e', name: 'E. Needs Analysis', score: jE },
-                { id: 'f', name: 'F. Cross Selling', score: jF },
-                { id: 'g', name: 'G. Objection', score: jG },
-                { id: 'h', name: 'H. Closing', score: jH },
-                { id: 'i', name: 'I. Cashier', score: jI },
-                { id: 'j', name: 'J. Farewell', score: jJ },
-                { id: 'k', name: 'K. Grooming', score: jK },
+                { id: 'a', name: 'A. Tampilan Tampak Depan Outlet', score: jA, fails: fA },
+                { id: 'b', name: 'B. Sambutan Hangat Ketika Masuk ke Dalam Outlet', score: jB, fails: fB },
+                { id: 'c', name: 'C. Suasana & Kenyamanan Outlet', score: jC, fails: fC },
+                { id: 'd', name: 'D. Penampilan Retail Assistant', score: jD, fails: fD },
+                { id: 'e', name: 'E. Pelayanan Penjualan & Pengetahuan Produk', score: jE, fails: fE },
+                { id: 'f', name: 'F. Pengalaman Mencoba Produk', score: jF, fails: fF },
+                { id: 'g', name: 'G. Rekomendasi untuk Membeli Produk', score: jG, fails: fG },
+                { id: 'h', name: 'H. Pembelian Produk & Pembayaran di Kasir', score: jH, fails: fH },
+                { id: 'i', name: 'I. Penampilan Kasir', score: jI, fails: fI },
+                { id: 'j', name: 'J. Toilet', score: jJ, fails: fJ },
+                { id: 'k', name: 'K. Salam Perpisahan oleh Retail Assistant', score: jK, fails: fK },
             ];
 
             // Wave history: group by wave_name
@@ -284,7 +303,7 @@ export default async function DashboardPage() {
                                         title={j.name}
                                         score={j.score}
                                         status={j.score < 80 ? 'red' : j.score < 90 ? 'yellow' : 'green'}
-                                        failedItemsCount={0}
+                                        failedItemsCount={j.fails}
                                         isActionRequired={j.score < 80}
                                     />
                                 </div>
@@ -301,7 +320,7 @@ export default async function DashboardPage() {
                                     title={j.name}
                                     score={j.score}
                                     status={j.score < 80 ? 'red' : j.score < 90 ? 'yellow' : 'green'}
-                                    failedItemsCount={0}
+                                    failedItemsCount={j.fails}
                                     isActionRequired={false}
                                 />
                             ))}
